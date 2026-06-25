@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Path, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, computed_field
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Optional
 import json
 
 class Patient(BaseModel):
@@ -30,6 +30,16 @@ class Patient(BaseModel):
             return "Overweight"
         else:
             return "Obese"
+        
+class PatientUpdate(BaseModel):
+    name : Annotated[Optional[str], Field(default=None)]
+    city : Annotated[Optional[str], Field(default=None)]
+    age : Annotated[Optional[int], Field(default=None, gt=0)]
+    gender : Annotated[Optional[Literal["male", "female"]], Field(default=None)]
+    height : Annotated[Optional[float], Field(default=None, gt = 0)]
+    weight : Annotated[Optional[float], Field(default=None, gt = 0)]
+
+
 
 def load_data():
     with open("patients.json", 'r') as f:
@@ -71,6 +81,7 @@ def sort_patients(sort_by : str = Query(..., description="Sort on the basis of h
     patients = load_data()
 
     sort_order = True if order == "desc" else False
+
     sorted_data = sorted(patients.values(), key = lambda x : x.get(sort_by, 0), reverse=sort_order)
 
     return sorted_data
@@ -88,4 +99,39 @@ def create_patient(patient: Patient):
 
     return JSONResponse(status_code=201, content={"message" : "Patient created successfully!"})
 
+@app.put("/update/{id}")
+def update_patient(patient: PatientUpdate, id : str = Path(..., description="ID of the patient", example="P001")):
+    patients = load_data()
+
+    if id not in patients:
+        raise HTTPException(status_code=404, detail="Patient not found.")
+
+    target_patient = patients[id]
+
+    temp = patient.model_dump()
+
+    for key in temp:
+        if temp[key] != None:
+            target_patient[key] = temp[key]
+
+    target_patient['id'] = id        #Added the ID of the patient becoz we need every field of Patient class to change the target_patient into a Patient class(Pydantic) object.
+
+    target_pydantic_obj = Patient(**target_patient)  #Changed the target_patient dict into a Patient class obj so that bmi and verdict can be updated also.
+
+    patients[id] = target_pydantic_obj.model_dump(exclude="id")
+    save_data(patients)
+
+    return JSONResponse(status_code=200, content={"message" : "Patient updated successfully!"})
+
+@app.delete("/delete/{id}")
+def delete_patient(id : str = Path(..., description="ID of the patient.", example="P001")):
+    patients = load_data()
+
+    if id not in patients:
+        raise HTTPException(status_code=404, detail="Patient not found")
     
+    del patients[id]
+
+    save_data(patients)
+
+    return JSONResponse(status_code=200, content={"message" : f"Patient {id} deleted successfully!"})
